@@ -1,0 +1,167 @@
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: v1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: '是否为预发布版本'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  manual-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+        
+    - name: Validate version format
+      run: |
+        VERSION="${{ github.event.inputs.version }}"
+        if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+          echo "❌ 版本格式错误。请使用 v1.0.0 格式"
+          exit 1
+        fi
+        echo "✅ 版本格式正确: $VERSION"
+        
+    - name: Build binaries
+      run: |
+        VERSION="${{ github.event.inputs.version }}"
+        mkdir -p release
+        
+        LDFLAGS="-X main.version=${VERSION} -s -w"
+        echo "构建参数: ${LDFLAGS}"
+        
+        # 构建所有平台的二进制文件
+        platforms=(
+          "linux/amd64"
+          "linux/arm64" 
+          "darwin/amd64"
+          "darwin/arm64"
+          "windows/amd64"
+        )
+        
+        for platform in "${platforms[@]}"; do
+          os=${platform%/*}
+          arch=${platform#*/}
+          
+          echo "🔨 构建 server for ${os}/${arch}..."
+          if [ "$os" = "windows" ]; then
+            GOOS=$os GOARCH=$arch go build -ldflags="${LDFLAGS}" -o release/ctrans-server-${os}-${arch}.exe ./server
+          else
+            GOOS=$os GOARCH=$arch go build -ldflags="${LDFLAGS}" -o release/ctrans-server-${os}-${arch} ./server
+          fi
+          
+          echo "🔨 构建 client for ${os}/${arch}..."  
+          if [ "$os" = "windows" ]; then
+            GOOS=$os GOARCH=$arch go build -ldflags="${LDFLAGS}" -o release/ctrans-${os}-${arch}.exe ./client
+          else
+            GOOS=$os GOARCH=$arch go build -ldflags="${LDFLAGS}" -o release/ctrans-${os}-${arch} ./client
+          fi
+        done
+        
+        # 重命名为友好的文件名
+        mv release/ctrans-server-darwin-amd64 release/ctrans-server-macos-amd64
+        mv release/ctrans-server-darwin-arm64 release/ctrans-server-macos-arm64
+        mv release/ctrans-darwin-amd64 release/ctrans-macos-amd64
+        mv release/ctrans-darwin-arm64 release/ctrans-macos-arm64
+        
+    - name: Create checksums
+      run: |
+        cd release
+        sha256sum * > checksums.txt
+        echo "📋 校验和文件:"
+        cat checksums.txt
+        
+    - name: List built files
+      run: |
+        echo "📦 构建完成的文件:"
+        ls -lah release/
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.event.inputs.version }}
+        name: ctrans ${{ github.event.inputs.version }}
+        prerelease: ${{ github.event.inputs.prerelease }}
+        generate_release_notes: true
+        body: |
+          # ctrans ${{ github.event.inputs.version }}
+          
+          🚀 **这是一个${{ github.event.inputs.prerelease == 'true' && '预发布' || '正式发布' }}版本**
+          
+          ## 📦 下载链接
+          
+          ### 服务器端
+          | 平台 | 架构 | 下载链接 |
+          |------|------|----------|
+          | Linux | x86-64 | [ctrans-server-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-server-linux-amd64) |
+          | Linux | ARM64 | [ctrans-server-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-server-linux-arm64) |
+          | macOS | x86-64 | [ctrans-server-macos-amd64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-server-macos-amd64) |
+          | macOS | ARM64 | [ctrans-server-macos-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-server-macos-arm64) |
+          | Windows | x86-64 | [ctrans-server-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-server-windows-amd64.exe) |
+          
+          ### 客户端
+          | 平台 | 架构 | 下载链接 |
+          |------|------|----------|
+          | Linux | x86-64 | [ctrans-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-linux-amd64) |
+          | Linux | ARM64 | [ctrans-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-linux-arm64) |
+          | macOS | x86-64 | [ctrans-macos-amd64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-macos-amd64) |
+          | macOS | ARM64 | [ctrans-macos-arm64](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-macos-arm64) |
+          | Windows | x86-64 | [ctrans-windows-amd64.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/ctrans-windows-amd64.exe) |
+          
+          ## 🔐 安全验证
+          
+          下载 [checksums.txt](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/checksums.txt) 验证文件完整性：
+          
+          ```bash
+          sha256sum -c checksums.txt
+          ```
+          
+          ## 🚀 快速开始
+          
+          ```bash
+          # 启动服务器
+          ./ctrans-server-linux-amd64 -port 9000 -key "your-secret-key"
+          
+          # 使用客户端上传文件
+          ./ctrans-linux-amd64 myfile.txt server:9000
+          
+          # 访问网页界面
+          # http://server:9000
+          ```
+          
+          ---
+          
+          详细使用说明请查看 [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)
+        files: |
+          release/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Summary
+      run: |
+        echo "## 🎉 发布成功！" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**版本**: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**类型**: ${{ github.event.inputs.prerelease == 'true' && '预发布版本' || '正式版本' }}" >> $GITHUB_STEP_SUMMARY
+        echo "**发布链接**: https://github.com/${{ github.repository }}/releases/tag/${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 构建的文件" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        ls -la release/ >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY 

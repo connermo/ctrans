@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 推送v开头的tag时触发，如v1.0.0
+
+permissions:
+  contents: write  # 需要写权限来创建release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+        
+    - name: Get version from tag
+      id: version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        
+    - name: Build binaries
+      run: |
+        # 创建release目录
+        mkdir -p release
+        
+        # 设置版本信息
+        VERSION=${{ steps.version.outputs.VERSION }}
+        LDFLAGS="-X main.version=${VERSION} -s -w"
+        
+        # 构建服务器端二进制文件
+        echo "Building server binaries..."
+        
+        # Linux x86-64
+        GOOS=linux GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o release/ctrans-server-linux-amd64 ./server
+        
+        # Linux ARM64
+        GOOS=linux GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o release/ctrans-server-linux-arm64 ./server
+        
+        # macOS x86-64
+        GOOS=darwin GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o release/ctrans-server-macos-amd64 ./server
+        
+        # macOS ARM64 (Apple Silicon)
+        GOOS=darwin GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o release/ctrans-server-macos-arm64 ./server
+        
+        # Windows x86-64
+        GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o release/ctrans-server-windows-amd64.exe ./server
+        
+        # 构建客户端二进制文件
+        echo "Building client binaries..."
+        
+        # Linux x86-64
+        GOOS=linux GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o release/ctrans-linux-amd64 ./client
+        
+        # Linux ARM64
+        GOOS=linux GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o release/ctrans-linux-arm64 ./client
+        
+        # macOS x86-64
+        GOOS=darwin GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o release/ctrans-macos-amd64 ./client
+        
+        # macOS ARM64 (Apple Silicon)
+        GOOS=darwin GOARCH=arm64 go build -ldflags="${LDFLAGS}" -o release/ctrans-macos-arm64 ./client
+        
+        # Windows x86-64
+        GOOS=windows GOARCH=amd64 go build -ldflags="${LDFLAGS}" -o release/ctrans-windows-amd64.exe ./client
+        
+    - name: Create checksums
+      run: |
+        cd release
+        sha256sum * > checksums.txt
+        
+    - name: Create release notes
+      id: release_notes
+      run: |
+        cat > release_notes.md << EOF
+        # ctrans ${VERSION}
+        
+        ## 📦 下载
+        
+        ### 服务器端
+        - **Linux x86-64**: ctrans-server-linux-amd64
+        - **Linux ARM64**: ctrans-server-linux-arm64  
+        - **macOS x86-64**: ctrans-server-macos-amd64
+        - **macOS ARM64**: ctrans-server-macos-arm64
+        - **Windows x86-64**: ctrans-server-windows-amd64.exe
+        
+        ### 客户端
+        - **Linux x86-64**: ctrans-linux-amd64
+        - **Linux ARM64**: ctrans-linux-arm64
+        - **macOS x86-64**: ctrans-macos-amd64  
+        - **macOS ARM64**: ctrans-macos-arm64
+        - **Windows x86-64**: ctrans-windows-amd64.exe
+        
+        ## 🚀 使用方法
+        
+        ### 启动服务器
+        \`\`\`bash
+        # Linux/macOS
+        ./ctrans-server-linux-amd64 -port 9000 -key "your-secret-key"
+        
+        # Windows
+        ctrans-server-windows-amd64.exe -port 9000 -key "your-secret-key"
+        \`\`\`
+        
+        ### 使用客户端
+        \`\`\`bash
+        # 上传文件
+        ./ctrans-linux-amd64 myfile.txt server:9000
+        
+        # 下载文件  
+        ./ctrans-linux-amd64 server:9000/myfile.txt
+        
+        # 列出文件
+        ./ctrans-linux-amd64 server:9000
+        \`\`\`
+        
+        ### 网页界面
+        
+        访问 http://server:9000 使用网页上传界面，支持：
+        - 🔐 密钥认证
+        - 📁 目录上传
+        - 🎯 拖拽上传
+        - 📊 实时进度
+        - 📋 文件列表
+        
+        ## 🔐 安全验证
+        
+        可以通过 checksums.txt 验证文件完整性：
+        \`\`\`bash
+        sha256sum -c checksums.txt
+        \`\`\`
+        
+        ---
+        
+        详细使用说明请参考 [README.md](https://github.com/\${{ github.repository }}/blob/main/README.md)
+        EOF
+        
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+        cat release_notes.md >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+    - name: Create Release
+      uses: actions/create-release@v1
+      id: create_release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        release_name: ctrans ${{ steps.version.outputs.VERSION }}
+        body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+        draft: false
+        prerelease: false
+        
+    - name: Upload Release Assets
+      run: |
+        # 上传所有二进制文件
+        for file in release/*; do
+          if [ -f "$file" ]; then
+            echo "Uploading $file..."
+            gh release upload ${{ steps.version.outputs.VERSION }} "$file" --clobber
+          fi
+        done
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Update latest release
+      run: |
+        echo "✅ Release ${{ steps.version.outputs.VERSION }} created successfully!"
+        echo "📦 Binaries uploaded for multiple platforms"
+        echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.VERSION }}" 

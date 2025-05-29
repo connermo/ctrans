@@ -1,0 +1,56 @@
+# 编译产物
+*.exe
+*.dll
+*.so
+*.dylib
+ctrans-server
+ctrans
+ctrans-client
+
+# 上传文件目录
+uploads/
+server/uploads/
+*.zip
+*.tar
+*.bin
+
+# 临时目录
+temp/
+server/temp/
+
+# 测试文件
+test_*
+*_test.*
+
+# 系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 发布目录中的二进制文件（保留目录结构，但忽略二进制）
+releases/ctrans-*
+releases/*.zip
+releases/*.tar.gz
+
+# Go 相关
+*.mod.backup
+*.sum.backup
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 临时文件
+*.tmp
+*.temp
+.upload_state/
+
+# 日志文件
+*.log 
